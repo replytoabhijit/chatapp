@@ -1,0 +1,111 @@
+'use client'
+import React, {useState, useEffect} from 'react'
+import io from 'socket.io-client'
+import axios from 'axios';
+import ChatUsers from '../_components/chatUsers.jsx';
+import { useUserStore } from '../zustand/useUserStore.js';
+import { useAuthStore } from '../zustand/useAuthStore.js';
+import { useChatReceiverStore } from '../zustand/useChatReceiverStore.js';
+import { useChatMsgsStore } from '../zustand/useChatMsgsStore.js';
+
+const Chat = () => {
+
+    const [msg, setMsg] = useState('');
+    const [socket, setSocket] = useState(null);
+    //use chat messages store instead, so that we can get messages in chatUsers component as well when we click on different users
+    //const [msgs, setMsgs] = useState([]);
+    const { chatMsgs, updateChatMsgs } = useChatMsgsStore();
+    const { authName } = useAuthStore();
+    const { updateUsers } = useUserStore();
+    const { chatReceiver } = useChatReceiverStore();
+
+    const getUserData = async () => {
+        try{
+            const res = await axios.get('http://localhost:5001/users', {
+                withCredentials: true
+            })
+            updateUsers(res.data);
+            console.log("User data fetched from server: ", res.data);
+        }catch(error) {
+            console.log("Error in fetching user data: ", error.message);
+        }
+    }
+
+    const sendMsg = (e) => {
+        e.preventDefault();
+        const messageToSend = {
+            text: msg,
+            sender: authName,
+            receiver: chatReceiver
+        }
+        console.log("Send Button pressed with message: ", messageToSend);
+        if(socket) {
+            console.log("Emitting message: " + messageToSend.text);
+            socket.emit('chat msg', messageToSend);
+            setMsgs(prevMsgs => [...prevMsgs, {text:messageToSend.text, sentByCurrentUser: true}]);
+            setMsg('');
+        }
+    }
+
+    useEffect(() => {
+        const newsocket = io('http://localhost:8080', {
+            query: {
+                username: authName // Use the dynamic username from the auth store
+            }
+        });
+        setSocket(newsocket);
+
+        //Listen to incoming messages
+        newsocket.on('chat msg', msg => {
+            console.log("Message received on client " + msg.text);
+            setMsgs(prevMsgs => [...prevMsgs, {text: msg.text, sentByCurrentUser: false}]);
+        })
+
+        getUserData();
+
+
+        return () => newsocket.close();
+    }, []);
+
+  return (
+    <div className='h-screen flex divide-x-4'>
+        <div className='w-1/5'>
+            <ChatUsers/>
+
+        </div>
+        <div className='w-4/5 flex flex-col'>
+            <div className='1/5'>
+                <h1>
+                    {authName} is chating with {chatReceiver}
+                </h1>
+            </div>
+            <div className='msgs-container h-4/5 overflow-scroll'>
+            {chatMsgs.map((msg, index) => (
+                //    <div key={index} className='msg text-right m-5'> old code
+                <div key={index} className={`msg ${msg.sentByCurrentUser ? 'text-right' : 'text-left'} m-5`}>
+                    {msg.text}
+                </div>
+            ))}
+            </div>
+            <div className='h-1/5 flex items-center justify-center'>
+                <form onSubmit={sendMsg} className="max-w-md mx-auto my-10">     
+                    <div className="relative">  
+                        <input type="text"
+                                value={msg}
+                                onChange={(e) => setMsg(e.target.value)}
+                                placeholder="Type your text here"
+                                required
+                                className="block w-full p-4 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"  />
+                        <button type="submit"
+                                className="text-white absolute end-2.5 bottom-2.5 bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
+                                Send
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+  )
+}
+
+export default Chat
